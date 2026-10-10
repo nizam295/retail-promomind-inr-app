@@ -1,0 +1,61 @@
+# File: azure-pipelines.yml
+trigger:
+  - main
+
+variables:
+  vmImageName: 'ubuntu-latest'
+  imageRepository: 'promomind-inr-agent'
+  acrRegistryConnection: 'MyAzureContainerRegistryConnection' # Set up in Azure portal
+
+stages:
+  # STAGE 1: Automated Quality & Constraint Validation (CI)
+  - stage: CI_Validation
+    displayName: 'Continuous Integrgit branch -M main
+ation'
+    jobs:
+      - job: RunTests
+        displayName: 'Execute Financial Guardrail Tests'
+        pool:
+          vmImage: $(vmImageName)
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.10'
+            displayName: 'Provision Python Environment'
+
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt
+            displayName: 'Install Platform Dependencies'
+
+          - script: |
+              pytest test_agents.py --junitxml=junit/test-results.xml
+            displayName: 'Run PyTest Quality Gateways'
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/test-results.xml'
+            displayName: 'Upload Test Reports to Dashboard'
+
+  # STAGE 2: Automated Container Deployment Packaging (CD)
+  - stage: CD_Deployment
+    displayName: 'Continuous Deployment'
+    dependsOn: CI_Validation
+    condition: succeeded()
+    jobs:
+      - job: BuildAndPush
+        displayName: 'Build and Publish Docker Image'
+        pool:
+          vmImage: $(vmImageName)
+        steps:
+          - task: Docker@2
+            displayName: 'Compile and Push to Registry'
+            inputs:
+              command: 'buildAndPush'
+              containerRegistry: $(acrRegistryConnection)
+              repository: $(imageRepository)
+              dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
+              tags: |
+                $(Build.BuildId)
+                latest
